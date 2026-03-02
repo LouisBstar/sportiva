@@ -1,0 +1,46 @@
+# Dépendances
+node_modules/
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Build Next.js
+/.next/
+/out/
+
+# Production
+/build
+
+# Variables d'environnement (NE JAMAIS COMMITTER)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Système
+.DS_Store
+*.pem
+Thumbs.db
+
+# Éditeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests
+/coverage

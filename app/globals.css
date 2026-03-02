@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #1A73E8;
+  }
+
+  html {
+    /* Empêche le zoom sur les inputs sur iOS */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-white text-gray-900 antialiased;
+    /* Safe area pour les appareils avec encoche */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+}
