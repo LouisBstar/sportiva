@@ -19,7 +19,8 @@ export type UpdateProfileInput = {
 };
 
 export type UpdateObjectifInput = {
-  objectifIdentitaire: string;
+  objectifPoids: string;
+  motivations: string[];
   objectifCalorique: "perte" | "maintien" | "prise";
   tdee: number;
   caloriesCible: number;
@@ -95,7 +96,8 @@ export async function updateObjectif(
   const { error } = await supabase
     .from("profiles")
     .update({
-      objectif_identitaire: input.objectifIdentitaire,
+      objectif_poids: input.objectifPoids,
+      motivations: input.motivations,
       objectif_calorique: input.objectifCalorique,
       tdee: input.tdee,
       calories_cible: input.caloriesCible,

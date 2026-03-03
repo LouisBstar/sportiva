@@ -4,6 +4,15 @@ import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PieChart, Pie, Cell } from "recharts";
 import { saveOnboarding } from "@/app/actions/onboarding";
+import {
+  ACTIVITY_OPTIONS,
+  WEIGHT_GOALS,
+  MOTIVATIONS,
+  calcTDEE,
+  calcAdjustment,
+  calcMacros,
+  getWeightGoalAdvice,
+} from "@/lib/calc";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +25,8 @@ type Step1Data = {
 };
 
 type Step2Data = {
-  objectif: string;
+  objectifPoids: string;
+  motivations: string[];
 };
 
 type Step3Data = {
@@ -27,164 +37,18 @@ type Step3Data = {
   masseOsseuse: string;
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const ACTIVITY_OPTIONS = [
-  {
-    value: "sedentaire",
-    label: "Sédentaire",
-    description: "Peu ou pas d'exercice, travail de bureau",
-    factor: 1.2,
-  },
-  {
-    value: "legerement_actif",
-    label: "Légèrement actif",
-    description: "Exercice léger 1–3 fois par semaine",
-    factor: 1.375,
-  },
-  {
-    value: "moderement_actif",
-    label: "Actif",
-    description: "Exercice régulier 3–5 fois par semaine",
-    factor: 1.55,
-  },
-  {
-    value: "tres_actif",
-    label: "Très actif",
-    description: "Entraînements intenses ou travail physique",
-    factor: 1.725,
-  },
-];
-
-const OBJECTIVES = [
-  {
-    value: "tonifier",
-    emoji: "💪",
-    label: "Me tonifier",
-    adjustment: -250,
-    type: "perte" as const,
-  },
-  {
-    value: "force",
-    emoji: "🏋️",
-    label: "Gagner en force",
-    adjustment: 200,
-    type: "prise" as const,
-  },
-  {
-    value: "explosif",
-    emoji: "⚡",
-    label: "Être plus explosif",
-    adjustment: 50,
-    type: "maintien" as const,
-  },
-  {
-    value: "endurance",
-    emoji: "🏃",
-    label: "Courir plus vite / plus loin",
-    adjustment: -75,
-    type: "maintien" as const,
-  },
-  {
-    value: "leger",
-    emoji: "🪶",
-    label: "Me sentir plus léger",
-    adjustment: -400,
-    type: "perte" as const,
-  },
-  {
-    value: "volume",
-    emoji: "📐",
-    label: "Prendre du volume",
-    adjustment: 350,
-    type: "prise" as const,
-  },
-  {
-    value: "maintien",
-    emoji: "⚖️",
-    label: "Maintenir ma forme",
-    adjustment: 0,
-    type: "maintien" as const,
-  },
-];
-
-const MACRO_RATIOS = {
-  prise: { prot: 0.3, carb: 0.45, fat: 0.25 },
-  maintien: { prot: 0.3, carb: 0.4, fat: 0.3 },
-  perte: { prot: 0.35, carb: 0.35, fat: 0.3 },
-};
-
-// ─── Calculations ─────────────────────────────────────────────────────────────
-
-function calcTDEE(
-  sexe: string,
-  poids: number,
-  taille: number,
-  age: number,
-  niveauActivite: string
-): number {
-  const bmr =
-    sexe === "homme"
-      ? 10 * poids + 6.25 * taille - 5 * age + 5
-      : 10 * poids + 6.25 * taille - 5 * age - 161;
-  const factor =
-    ACTIVITY_OPTIONS.find((a) => a.value === niveauActivite)?.factor ?? 1.2;
-  return Math.round(bmr * factor);
-}
-
-function calcAdjustment(objectifValue: string, bmi: number): number {
-  const obj = OBJECTIVES.find((o) => o.value === objectifValue);
-  if (!obj) return 0;
-  let adj = obj.adjustment;
-  if (bmi < 18.5) {
-    adj = Math.max(adj, -150);
-  } else if (bmi >= 30) {
-    if (adj < 0) adj = Math.min(adj - 100, -300);
-  }
-  return adj;
-}
-
-function calcMacros(
-  caloriesCible: number,
-  poids: number,
-  objectifType: "perte" | "maintien" | "prise"
-) {
-  const ratios = MACRO_RATIOS[objectifType];
-  let prot = Math.round((caloriesCible * ratios.prot) / 4);
-  let carb = Math.round((caloriesCible * ratios.carb) / 4);
-  let fat = Math.round((caloriesCible * ratios.fat) / 9);
-
-  const minProt = Math.ceil(1.6 * poids);
-  const minFat = Math.ceil(0.8 * poids);
-
-  if (prot < minProt) {
-    const extra = (minProt - prot) * 4;
-    prot = minProt;
-    carb = Math.max(0, carb - Math.round(extra / 4));
-  }
-  if (fat < minFat) {
-    const extra = (minFat - fat) * 9;
-    fat = minFat;
-    carb = Math.max(0, carb - Math.round(extra / 4));
-  }
-
-  return { prot, carb, fat };
-}
-
-function calcKgPerMonth(adjustment: number): number {
-  return Math.round((adjustment * 30) / 7700 * 10) / 10;
-}
-
 // ─── Stepper ──────────────────────────────────────────────────────────────────
 
 function Stepper({ step }: { step: number }) {
   const steps = ["Profil", "Objectif", "Compo", "Résumé"];
+  // Map internal state (1-5) to visual step (1-4)
+  const visualStep = step <= 2 ? 1 : step <= 3 ? 2 : step <= 4 ? 3 : 4;
   return (
     <div className="flex items-center justify-center mb-8">
       {steps.map((label, i) => {
         const num = i + 1;
-        const isDone = num < step;
-        const isActive = num === step;
+        const isDone = num < visualStep;
+        const isActive = num === visualStep;
         return (
           <div key={i} className="flex items-center">
             <div className="flex flex-col items-center">
@@ -198,18 +62,8 @@ function Stepper({ step }: { step: number }) {
                 }`}
               >
                 {isDone ? (
-                  <svg
-                    className="w-4 h-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M5 13l4 4L19 7"
-                    />
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 ) : (
                   num
@@ -226,7 +80,7 @@ function Stepper({ step }: { step: number }) {
             {i < steps.length - 1 && (
               <div
                 className={`w-10 h-0.5 mb-4 mx-1 transition-all ${
-                  num < step ? "bg-primary" : "bg-gray-200"
+                  num < visualStep ? "bg-primary" : "bg-gray-200"
                 }`}
               />
             )}
@@ -268,16 +122,12 @@ function Step1({
     <div className="space-y-6 animate-step-in">
       <div>
         <h2 className="text-xl font-bold text-[#1A1A2E] mb-1">Ton profil</h2>
-        <p className="text-sm text-gray-400">
-          Quelques données pour calculer tes besoins
-        </p>
+        <p className="text-sm text-gray-400">Quelques données pour calculer tes besoins</p>
       </div>
 
       {/* Sexe */}
       <div>
-        <label className="block text-sm font-semibold text-[#1A1A2E] mb-2">
-          Sexe
-        </label>
+        <label className="block text-sm font-semibold text-[#1A1A2E] mb-2">Sexe</label>
         <div className="grid grid-cols-2 gap-3">
           {(["homme", "femme"] as const).map((s) => (
             <button
@@ -294,9 +144,7 @@ function Step1({
             </button>
           ))}
         </div>
-        {errors.sexe && (
-          <p className="text-xs text-red-500 mt-1">{errors.sexe}</p>
-        )}
+        {errors.sexe && <p className="text-xs text-red-500 mt-1">{errors.sexe}</p>}
       </div>
 
       {/* Âge / Poids / Taille */}
@@ -307,9 +155,7 @@ function Step1({
           { key: "taille", label: "Taille", unit: "cm", placeholder: "175" },
         ].map(({ key, label, unit, placeholder }) => (
           <div key={key}>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">
-              {label}
-            </label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">{label}</label>
             <div className="relative">
               <input
                 type="number"
@@ -325,9 +171,7 @@ function Step1({
                 {unit}
               </span>
             </div>
-            {errors[key] && (
-              <p className="text-[10px] text-red-500 mt-0.5">{errors[key]}</p>
-            )}
+            {errors[key] && <p className="text-[10px] text-red-500 mt-0.5">{errors[key]}</p>}
           </div>
         ))}
       </div>
@@ -351,17 +195,13 @@ function Step1({
             >
               <div
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  data.niveauActivite === opt.value
-                    ? "bg-primary"
-                    : "bg-gray-300"
+                  data.niveauActivite === opt.value ? "bg-primary" : "bg-gray-300"
                 }`}
               />
               <div>
                 <p
                   className={`text-sm font-semibold ${
-                    data.niveauActivite === opt.value
-                      ? "text-primary"
-                      : "text-[#1A1A2E]"
+                    data.niveauActivite === opt.value ? "text-primary" : "text-[#1A1A2E]"
                   }`}
                 >
                   {opt.label}
@@ -387,50 +227,53 @@ function Step1({
   );
 }
 
-// ─── Step 2 — Objectif identitaire ───────────────────────────────────────────
+// ─── Step 2A — Objectif poids ─────────────────────────────────────────────────
 
-function Step2({
-  data,
-  onChange,
+function Step2A({
+  selected,
+  onSelect,
   onNext,
   onBack,
 }: {
-  data: Step2Data;
-  onChange: (d: Partial<Step2Data>) => void;
+  selected: string;
+  onSelect: (v: string) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
   return (
     <div className="space-y-5 animate-step-in">
       <div>
-        <h2 className="text-xl font-bold text-[#1A1A2E] mb-1">
-          Qu&apos;est-ce qui te motive ?
-        </h2>
-        <p className="text-sm text-gray-400">
-          Choisis l&apos;objectif qui te parle le plus
-        </p>
+        <h2 className="text-xl font-bold text-[#1A1A2E] mb-1">Ton objectif poids</h2>
+        <p className="text-sm text-gray-400">Qu&apos;est-ce que tu veux faire de ton poids ?</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5">
-        {OBJECTIVES.map((obj) => (
+      <div className="space-y-2.5">
+        {WEIGHT_GOALS.map((goal) => (
           <button
-            key={obj.value}
+            key={goal.value}
             type="button"
-            onClick={() => onChange({ objectif: obj.value })}
-            className={`flex flex-col items-center gap-1.5 p-4 rounded-2xl border-2 text-center transition-all ${
-              data.objectif === obj.value
+            onClick={() => onSelect(goal.value)}
+            className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 text-left transition-all ${
+              selected === goal.value
                 ? "border-primary bg-primary/5"
                 : "border-gray-200 bg-white"
             }`}
           >
-            <span className="text-2xl">{obj.emoji}</span>
+            <span className="text-2xl flex-shrink-0">{goal.emoji}</span>
             <span
-              className={`text-xs font-semibold leading-tight ${
-                data.objectif === obj.value ? "text-primary" : "text-[#1A1A2E]"
+              className={`text-sm font-semibold flex-1 ${
+                selected === goal.value ? "text-primary" : "text-[#1A1A2E]"
               }`}
             >
-              {obj.label}
+              {goal.label}
             </span>
+            {selected === goal.value && (
+              <span className="w-5 h-5 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -446,12 +289,102 @@ function Step2({
         <button
           type="button"
           onClick={onNext}
-          disabled={!data.objectif}
+          disabled={!selected}
           className="flex-[2] bg-primary text-white py-4 rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform shadow-md shadow-primary/30 disabled:opacity-40 disabled:shadow-none"
         >
           Continuer →
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Step 2B — Motivations ────────────────────────────────────────────────────
+
+function Step2B({
+  selected,
+  onToggle,
+  onNext,
+  onBack,
+  bmi,
+  objectifPoids,
+}: {
+  selected: string[];
+  onToggle: (v: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+  bmi?: number;
+  objectifPoids: string;
+}) {
+  const advice = bmi ? getWeightGoalAdvice(objectifPoids, selected, bmi) : null;
+
+  return (
+    <div className="space-y-5 animate-step-in">
+      <div>
+        <h2 className="text-xl font-bold text-[#1A1A2E] mb-1">Tes motivations</h2>
+        <p className="text-sm text-gray-400">
+          Ce qui te pousse à te dépasser (plusieurs choix possibles)
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        {MOTIVATIONS.map((m) => {
+          const isSelected = selected.includes(m.value);
+          return (
+            <button
+              key={m.value}
+              type="button"
+              onClick={() => onToggle(m.value)}
+              className={`flex flex-col items-center gap-1.5 p-4 rounded-2xl border-2 text-center transition-all ${
+                isSelected
+                  ? "border-primary bg-primary/5"
+                  : "border-gray-200 bg-white"
+              }`}
+            >
+              <span className="text-2xl">{m.emoji}</span>
+              <span
+                className={`text-xs font-semibold leading-tight ${
+                  isSelected ? "text-primary" : "text-[#1A1A2E]"
+                }`}
+              >
+                {m.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Smart BMI advice */}
+      {advice && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex gap-2.5">
+          <span className="text-lg flex-shrink-0">💡</span>
+          <p className="text-xs text-amber-800 leading-relaxed">{advice}</p>
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform"
+        >
+          ← Retour
+        </button>
+        <button
+          type="button"
+          onClick={onNext}
+          className="flex-[2] bg-primary text-white py-4 rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform shadow-md shadow-primary/30"
+        >
+          Continuer →
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={onNext}
+        className="w-full text-center text-sm text-gray-400 py-1 active:text-gray-600"
+      >
+        Passer cette étape
+      </button>
     </div>
   );
 }
@@ -486,25 +419,20 @@ function Step3({
     <div className="space-y-5 animate-step-in">
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-xl font-bold text-[#1A1A2E]">
-            Balance connectée ?
-          </h2>
+          <h2 className="text-xl font-bold text-[#1A1A2E]">Balance connectée ?</h2>
           <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
             optionnel
           </span>
         </div>
         <p className="text-sm text-gray-400">
-          Le poids seul n&apos;est pas un indicateur fiable. La composition
-          corporelle est ce qui compte.
+          Le poids seul n&apos;est pas un indicateur fiable. La composition corporelle est ce qui compte.
         </p>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100">
         {fields.map((field) => (
           <div key={field.key} className="flex items-center px-4 py-3 gap-3">
-            <label className="flex-1 text-sm font-medium text-[#1A1A2E]">
-              {field.label}
-            </label>
+            <label className="flex-1 text-sm font-medium text-[#1A1A2E]">{field.label}</label>
             <div className="flex items-center gap-1.5">
               <input
                 type="number"
@@ -551,6 +479,10 @@ function Step3({
 
 // ─── Step 4 — Récapitulatif ───────────────────────────────────────────────────
 
+function calcKgPerMonth(adjustment: number): number {
+  return Math.round(((adjustment * 30) / 7700) * 10) / 10;
+}
+
 function Step4({
   step1,
   step2,
@@ -575,13 +507,13 @@ function Step4({
   const bmi = poids / (taille / 100) ** 2;
 
   const tdee = calcTDEE(step1.sexe, poids, taille, age, step1.niveauActivite);
-  const adjustment = calcAdjustment(step2.objectif, bmi);
+  const adjustment = calcAdjustment(step2.objectifPoids, bmi);
   const rawCal = tdee + adjustment;
   const minCal = step1.sexe === "femme" ? 1200 : 1500;
   const caloriesCible = Math.max(rawCal, minCal);
 
-  const obj = OBJECTIVES.find((o) => o.value === step2.objectif)!;
-  const macros = calcMacros(caloriesCible, poids, obj.type);
+  const goal = WEIGHT_GOALS.find((g) => g.value === step2.objectifPoids)!;
+  const macros = calcMacros(caloriesCible, poids, goal.type);
   const kgPerMonth = calcKgPerMonth(adjustment);
 
   const totalCal = macros.prot * 4 + macros.carb * 4 + macros.fat * 9;
@@ -616,13 +548,15 @@ function Step4({
       ? `📈 +${kgPerMonth} kg/mois estimé`
       : `📉 ${kgPerMonth} kg/mois estimé`;
 
+  const selectedMotivations = MOTIVATIONS.filter((m) =>
+    step2.motivations.includes(m.value)
+  );
+
   return (
     <div className="space-y-4 animate-step-in">
       <div>
-        <h2 className="text-xl font-bold text-[#1A1A2E] mb-1">
-          Ton plan personnalisé
-        </h2>
-        <p className="text-sm text-gray-400">Basé sur ton profil et objectif</p>
+        <h2 className="text-xl font-bold text-[#1A1A2E] mb-1">Ton plan personnalisé</h2>
+        <p className="text-sm text-gray-400">Basé sur ton profil et tes objectifs</p>
       </div>
 
       {/* TDEE + Calories cible */}
@@ -632,8 +566,7 @@ function Step4({
             Métabolisme total
           </p>
           <p className="text-2xl font-bold text-primary">
-            {tdee}{" "}
-            <span className="text-sm font-medium text-primary/70">kcal</span>
+            {tdee} <span className="text-sm font-medium text-primary/70">kcal</span>
           </p>
           <p className="text-[11px] text-gray-400">TDEE Mifflin-St Jeor</p>
         </div>
@@ -643,8 +576,7 @@ function Step4({
             Objectif / jour
           </p>
           <p className="text-2xl font-bold text-[#1A1A2E]">
-            {caloriesCible}{" "}
-            <span className="text-sm font-medium text-gray-400">kcal</span>
+            {caloriesCible} <span className="text-sm font-medium text-gray-400">kcal</span>
           </p>
           <p
             className={`text-[11px] font-semibold ${
@@ -662,9 +594,7 @@ function Step4({
 
       {/* Macro donut */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
-        <h3 className="text-sm font-semibold text-[#1A1A2E] mb-3">
-          Répartition des macros
-        </h3>
+        <h3 className="text-sm font-semibold text-[#1A1A2E] mb-3">Répartition des macros</h3>
         <div className="flex items-center gap-3">
           <div className="flex-shrink-0">
             {mounted ? (
@@ -693,17 +623,12 @@ function Step4({
             {macroData.map((m) => (
               <div key={m.name} className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: m.color }}
-                  />
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
                   <span className="text-xs text-gray-500">{m.name}</span>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-bold text-[#1A1A2E]">
-                    {m.grams}g
-                  </span>
-                  <span className="text-xs text-gray-400 ml-1">{m.pct}%</span>
+                  <span className="text-sm font-bold text-[#1A1A2E]">{m.grams}g</span>
+                  <span className="text-xs text-gray-400 ml-1">({m.pct}%)</span>
                 </div>
               </div>
             ))}
@@ -711,15 +636,27 @@ function Step4({
         </div>
       </div>
 
-      {/* Objectif identitaire */}
-      <div className="bg-gray-50 rounded-2xl p-4 flex items-center gap-3 border border-gray-100">
-        <span className="text-2xl">{obj.emoji}</span>
-        <div>
-          <p className="text-xs text-gray-400 font-medium">
-            Objectif identitaire
-          </p>
-          <p className="text-sm font-semibold text-[#1A1A2E]">{obj.label}</p>
+      {/* Objectif + motivations */}
+      <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-2">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{goal?.emoji}</span>
+          <div>
+            <p className="text-xs text-gray-400 font-medium">Objectif poids</p>
+            <p className="text-sm font-semibold text-[#1A1A2E]">{goal?.label}</p>
+          </div>
         </div>
+        {selectedMotivations.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {selectedMotivations.map((m) => (
+              <span
+                key={m.value}
+                className="flex items-center gap-1 text-[11px] bg-white border border-gray-200 text-[#1A1A2E] px-2 py-1 rounded-full font-medium"
+              >
+                {m.emoji} {m.label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {saveError && (
@@ -749,6 +686,7 @@ function Step4({
 }
 
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
+// Steps: 1=Profil, 2=Step2A(poids), 3=Step2B(motivations), 4=Step3(compo), 5=Step4(résumé)
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -763,7 +701,7 @@ export default function OnboardingPage() {
     taille: "",
     niveauActivite: "",
   });
-  const [step2, setStep2] = useState<Step2Data>({ objectif: "" });
+  const [step2, setStep2] = useState<Step2Data>({ objectifPoids: "", motivations: [] });
   const [step3, setStep3] = useState<Step3Data>({
     masseGrasse: "",
     masseMusculaire: "",
@@ -772,21 +710,35 @@ export default function OnboardingPage() {
     masseOsseuse: "",
   });
 
+  const bmi =
+    step1.poids && step1.taille
+      ? Number(step1.poids) / (Number(step1.taille) / 100) ** 2
+      : undefined;
+
+  const toggleMotivation = (value: string) => {
+    setStep2((prev) => ({
+      ...prev,
+      motivations: prev.motivations.includes(value)
+        ? prev.motivations.filter((v) => v !== value)
+        : [...prev.motivations, value],
+    }));
+  };
+
   const handleSave = () => {
     setSaveError(null);
     const poids = Number(step1.poids);
     const taille = Number(step1.taille);
     const age = Number(step1.age);
-    const bmi = poids / (taille / 100) ** 2;
+    const bmiVal = poids / (taille / 100) ** 2;
 
     const tdee = calcTDEE(step1.sexe, poids, taille, age, step1.niveauActivite);
-    const adjustment = calcAdjustment(step2.objectif, bmi);
+    const adjustment = calcAdjustment(step2.objectifPoids, bmiVal);
     const rawCal = tdee + adjustment;
     const minCal = step1.sexe === "femme" ? 1200 : 1500;
     const caloriesCible = Math.max(rawCal, minCal);
 
-    const obj = OBJECTIVES.find((o) => o.value === step2.objectif)!;
-    const macros = calcMacros(caloriesCible, poids, obj.type);
+    const goal = WEIGHT_GOALS.find((g) => g.value === step2.objectifPoids)!;
+    const macros = calcMacros(caloriesCible, poids, goal.type);
 
     const hasBodyComp =
       step3.masseGrasse ||
@@ -802,8 +754,9 @@ export default function OnboardingPage() {
         poids,
         taille,
         niveauActivite: step1.niveauActivite,
-        objectifIdentitaire: obj.label,
-        objectifCalorique: obj.type,
+        objectifPoids: step2.objectifPoids,
+        motivations: step2.motivations,
+        objectifCalorique: goal.type,
         tdee,
         caloriesCible,
         proteinesCibleG: macros.prot,
@@ -811,21 +764,11 @@ export default function OnboardingPage() {
         lipidesCibleG: macros.fat,
         bodyComposition: hasBodyComp
           ? {
-              masseGrassePct: step3.masseGrasse
-                ? Number(step3.masseGrasse)
-                : undefined,
-              masseMusculaire: step3.masseMusculaire
-                ? Number(step3.masseMusculaire)
-                : undefined,
-              graisseViscerale: step3.graisseViscerale
-                ? Number(step3.graisseViscerale)
-                : undefined,
-              tauxHydrique: step3.tauxHydrique
-                ? Number(step3.tauxHydrique)
-                : undefined,
-              masseOsseuse: step3.masseOsseuse
-                ? Number(step3.masseOsseuse)
-                : undefined,
+              masseGrassePct: step3.masseGrasse ? Number(step3.masseGrasse) : undefined,
+              masseMusculaire: step3.masseMusculaire ? Number(step3.masseMusculaire) : undefined,
+              graisseViscerale: step3.graisseViscerale ? Number(step3.graisseViscerale) : undefined,
+              tauxHydrique: step3.tauxHydrique ? Number(step3.tauxHydrique) : undefined,
+              masseOsseuse: step3.masseOsseuse ? Number(step3.masseOsseuse) : undefined,
             }
           : undefined,
       });
@@ -844,12 +787,7 @@ export default function OnboardingPage() {
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-8">
           <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center shadow-sm shadow-primary/30">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="white"
-              className="w-4 h-4"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" className="w-4 h-4">
               <path d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
               <path d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" />
             </svg>
@@ -868,30 +806,41 @@ export default function OnboardingPage() {
         )}
 
         {step === 2 && (
-          <Step2
-            data={step2}
-            onChange={(d) => setStep2((prev) => ({ ...prev, ...d }))}
+          <Step2A
+            selected={step2.objectifPoids}
+            onSelect={(v) => setStep2((prev) => ({ ...prev, objectifPoids: v }))}
             onNext={() => setStep(3)}
             onBack={() => setStep(1)}
           />
         )}
 
         {step === 3 && (
-          <Step3
-            data={step3}
-            onChange={(d) => setStep3((prev) => ({ ...prev, ...d }))}
+          <Step2B
+            selected={step2.motivations}
+            onToggle={toggleMotivation}
             onNext={() => setStep(4)}
             onBack={() => setStep(2)}
+            bmi={bmi}
+            objectifPoids={step2.objectifPoids}
           />
         )}
 
         {step === 4 && (
+          <Step3
+            data={step3}
+            onChange={(d) => setStep3((prev) => ({ ...prev, ...d }))}
+            onNext={() => setStep(5)}
+            onBack={() => setStep(3)}
+          />
+        )}
+
+        {step === 5 && (
           <Step4
             step1={step1}
             step2={step2}
             isPending={isPending}
             onSave={handleSave}
-            onBack={() => setStep(3)}
+            onBack={() => setStep(4)}
             saveError={saveError}
           />
         )}

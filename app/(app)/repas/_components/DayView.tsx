@@ -3,7 +3,9 @@
 import { useState, useTransition, useOptimistic } from "react";
 import { useRouter } from "next/navigation";
 import { removeMealItem, type MealType } from "@/app/actions/meals";
-import AddItemModal, { type OptimisticItem } from "./AddItemModal";
+import ConversationalModal, { type OptimisticItem } from "./ConversationalModal";
+import FavoriteTemplates, { type MealTemplate } from "./FavoriteTemplates";
+import type { ParsedItem } from "@/lib/meal-parser";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +17,7 @@ type MealItem = {
   glucides: number | null;
   lipides: number | null;
   product: { nom: string } | null;
+  nom_aliment: string | null;
 };
 
 type Meal = {
@@ -53,9 +56,10 @@ type Props = {
   products: Product[];
   nutrition: DayNutrition;
   profile: Profile | null;
+  templates: MealTemplate[];
 };
 
-// ─── Meal section config ──────────────────────────────────────────────────────
+// ─── Config sections repas ────────────────────────────────────────────────────
 
 const MEAL_CONFIG: { type: MealType; label: string; emoji: string }[] = [
   { type: "petit-dejeuner", label: "Petit-déjeuner", emoji: "🌅" },
@@ -64,7 +68,7 @@ const MEAL_CONFIG: { type: MealType; label: string; emoji: string }[] = [
   { type: "diner",          label: "Dîner",          emoji: "🌙" },
 ];
 
-// ─── Remove button ────────────────────────────────────────────────────────────
+// ─── Bouton supprimer aliment ─────────────────────────────────────────────────
 
 function RemoveItemButton({ id, onDone }: { id: string; onDone: () => void }) {
   const [isPending, startTransition] = useTransition();
@@ -87,73 +91,58 @@ function RemoveItemButton({ id, onDone }: { id: string; onDone: () => void }) {
   );
 }
 
-// ─── Single meal section ──────────────────────────────────────────────────────
+// ─── Section repas ────────────────────────────────────────────────────────────
 
 function MealSection({
   config,
   meal,
-  date,
-  products,
   onRefresh,
-  onAddItem,
+  onOpenModal,
 }: {
   config: (typeof MEAL_CONFIG)[number];
   meal: Meal | undefined;
-  date: string;
-  products: Product[];
   onRefresh: () => void;
-  onAddItem: (mealType: MealType, item: OptimisticItem) => void;
+  onOpenModal: () => void;
 }) {
-  const [showModal, setShowModal] = useState(false);
   const items = meal?.items ?? [];
   const totalCal = items.reduce((s, i) => s + (i.calories ?? 0), 0);
 
-  const handleSuccess = (item: OptimisticItem) => {
-    setShowModal(false);
-    onAddItem(config.type, item);
-  };
-
   return (
-    <>
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        {/* Section header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
-          <div className="flex items-center gap-2">
-            <span className="text-lg leading-none">{config.emoji}</span>
-            <span className="text-sm font-bold text-[#1A1A2E]">{config.label}</span>
-            {items.length > 0 && (
-              <span className="text-xs text-gray-400">
-                {Math.round(totalCal)} kcal
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg leading-none"
-            aria-label={`Ajouter à ${config.label}`}
-          >
-            +
-          </button>
+    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
+        <div className="flex items-center gap-2">
+          <span className="text-lg leading-none">{config.emoji}</span>
+          <span className="text-sm font-bold text-[#1A1A2E]">{config.label}</span>
+          {items.length > 0 && (
+            <span className="text-xs text-gray-400">{Math.round(totalCal)} kcal</span>
+          )}
         </div>
+        <button
+          onClick={onOpenModal}
+          className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg leading-none"
+          aria-label={`Ajouter à ${config.label}`}
+        >
+          +
+        </button>
+      </div>
 
-        {/* Items */}
-        {items.length === 0 ? (
-          <div className="px-4 py-4 text-center">
-            <p className="text-xs text-gray-300">
-              Rien de logué · touche + pour ajouter
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {items.map((item) => (
+      {/* Items */}
+      {items.length === 0 ? (
+        <div className="px-4 py-4 text-center">
+          <p className="text-xs text-gray-300">Rien de logué · touche + pour ajouter</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-50">
+          {items.map((item) => {
+            const nom = item.product?.nom ?? item.nom_aliment ?? "—";
+            return (
               <div
                 key={item.id}
                 className="flex items-center justify-between px-4 py-3 gap-3"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#1A1A2E] truncate">
-                    {item.product?.nom ?? "—"}
-                  </p>
+                  <p className="text-sm font-medium text-[#1A1A2E] truncate">{nom}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5">
                     {item.quantite_g}g
                     {item.proteines != null && (
@@ -173,32 +162,20 @@ function MealSection({
                       {Math.round(Number(item.calories))} kcal
                     </span>
                   )}
-                  {/* Hide remove button for optimistic items (not yet persisted) */}
                   {!item.id.startsWith("opt-") && (
                     <RemoveItemButton id={item.id} onDone={onRefresh} />
                   )}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {showModal && (
-        <AddItemModal
-          date={date}
-          typeRepas={config.type}
-          mealTypeLabel={config.label}
-          products={products}
-          onClose={() => setShowModal(false)}
-          onSuccess={handleSuccess}
-        />
+            );
+          })}
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
-// ─── Progress bar ─────────────────────────────────────────────────────────────
+// ─── Barre de progression ─────────────────────────────────────────────────────
 
 function ProgressBar({
   value,
@@ -228,51 +205,67 @@ export default function DayView({
   products,
   nutrition,
   profile,
+  templates,
 }: Props) {
   const router = useRouter();
 
-  // ── Optimistic state — updates UI immediately before server confirms ──
-  const [optimisticMeals, addOptimisticItem] = useOptimistic(
+  // État du modal : null = fermé, sinon { typeRepas, templateItems? }
+  const [modalState, setModalState] = useState<{
+    typeRepas: MealType;
+    templateItems?: ParsedItem[];
+  } | null>(null);
+
+  // ── Optimistic state ─────────────────────────────────────────────────────
+  const [optimisticMeals, addOptimisticItems] = useOptimistic(
     meals,
     (
       prev: Meal[],
-      { mealType, item }: { mealType: MealType; item: OptimisticItem }
+      { mealType, items }: { mealType: MealType; items: OptimisticItem[] }
     ) => {
-      const existingMeal = prev.find((m) => m.type_repas === mealType);
-      if (existingMeal) {
+      const existing = prev.find((m) => m.type_repas === mealType);
+      const newItems: MealItem[] = items.map((it) => ({
+        id: it.id,
+        quantite_g: it.quantite_g,
+        calories: it.calories,
+        proteines: it.proteines,
+        glucides: it.glucides,
+        lipides: it.lipides,
+        product: it.product,
+        nom_aliment: it.nom_aliment,
+      }));
+      if (existing) {
         return prev.map((m) =>
           m.type_repas === mealType
-            ? { ...m, items: [...m.items, item] }
+            ? { ...m, items: [...m.items, ...newItems] }
             : m
         );
       }
       return [
         ...prev,
-        { id: `opt-meal-${Date.now()}`, type_repas: mealType, items: [item] },
+        { id: `opt-meal-${Date.now()}`, type_repas: mealType, items: newItems },
       ];
     }
   );
 
-  const handleAddItem = (mealType: MealType, item: OptimisticItem) => {
-    addOptimisticItem({ mealType, item });
+  const handleAddItems = (mealType: MealType, optimisticItems: OptimisticItem[]) => {
+    addOptimisticItems({ mealType, items: optimisticItems });
+    setModalState(null);
     router.refresh();
   };
 
   const refresh = () => router.refresh();
 
-  // Compute totals from optimistic state (instant feedback)
+  // ── Totaux nutritionnels ─────────────────────────────────────────────────
   const optCal  = optimisticMeals.reduce((s, m) => s + m.items.reduce((a, i) => a + (i.calories  ?? 0), 0), 0);
   const optProt = optimisticMeals.reduce((s, m) => s + m.items.reduce((a, i) => a + (i.proteines ?? 0), 0), 0);
   const optCarb = optimisticMeals.reduce((s, m) => s + m.items.reduce((a, i) => a + (i.glucides  ?? 0), 0), 0);
   const optFat  = optimisticMeals.reduce((s, m) => s + m.items.reduce((a, i) => a + (i.lipides   ?? 0), 0), 0);
 
-  // Use server nutrition as baseline (accurate after refresh), add optimistic delta
   const serverCal  = Number(nutrition.total_calories);
   const serverProt = Number(nutrition.total_proteines);
   const serverCarb = Number(nutrition.total_glucides);
   const serverFat  = Number(nutrition.total_lipides);
 
-  // When optimistic total > server total, we have pending additions
   const cal  = Math.round(Math.max(optCal,  serverCal));
   const prot = Math.max(optProt, serverProt);
   const carb = Math.max(optCarb, serverCarb);
@@ -287,6 +280,10 @@ export default function DayView({
   const carbCible = profile?.glucides_cible_g  ?? 200;
   const fatCible  = profile?.lipides_cible_g   ?? 70;
 
+  const activeConfig = modalState
+    ? MEAL_CONFIG.find((c) => c.type === modalState.typeRepas)!
+    : null;
+
   return (
     <div className="bg-gray-50 min-h-screen">
       {/* Header */}
@@ -295,7 +292,7 @@ export default function DayView({
       </div>
 
       <div className="px-4 py-4 pb-28 space-y-3">
-        {/* Day summary */}
+        {/* Résumé du jour */}
         <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
           <div className="flex items-end justify-between">
             <div>
@@ -318,7 +315,7 @@ export default function DayView({
             color={cal > calCible ? "bg-orange-400" : "bg-primary"}
           />
 
-          {/* Macros row */}
+          {/* Macros */}
           <div className="grid grid-cols-3 gap-2 pt-1">
             {[
               { label: "Protéines", value: prot, target: protCible, color: "bg-red-400" },
@@ -337,19 +334,38 @@ export default function DayView({
           </div>
         </div>
 
-        {/* Meal sections */}
+        {/* Favoris */}
+        <FavoriteTemplates
+          templates={templates}
+          onUseTemplate={(typeRepas, templateItems) =>
+            setModalState({ typeRepas, templateItems })
+          }
+        />
+
+        {/* Sections repas */}
         {MEAL_CONFIG.map((config) => (
           <MealSection
             key={config.type}
             config={config}
             meal={mealByType[config.type]}
-            date={date}
-            products={products}
             onRefresh={refresh}
-            onAddItem={handleAddItem}
+            onOpenModal={() => setModalState({ typeRepas: config.type })}
           />
         ))}
       </div>
+
+      {/* Modal conversationnel */}
+      {modalState && activeConfig && (
+        <ConversationalModal
+          date={date}
+          typeRepas={modalState.typeRepas}
+          mealTypeLabel={activeConfig.label}
+          products={products}
+          onClose={() => setModalState(null)}
+          onSuccess={(items) => handleAddItems(modalState.typeRepas, items)}
+          templateItems={modalState.templateItems}
+        />
+      )}
     </div>
   );
 }

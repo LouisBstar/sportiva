@@ -27,21 +27,26 @@ export const ACTIVITY_OPTIONS = [
   },
 ] as const;
 
-export const OBJECTIVES = [
-  { value: "tonifier",  emoji: "💪", label: "Me tonifier",              adjustment: -250, type: "perte"    as const },
-  { value: "force",     emoji: "🏋️", label: "Gagner en force",          adjustment:  200, type: "prise"    as const },
-  { value: "explosif",  emoji: "⚡",  label: "Être plus explosif",       adjustment:   50, type: "maintien" as const },
-  { value: "endurance", emoji: "🏃", label: "Courir plus vite / plus loin", adjustment: -75, type: "maintien" as const },
-  { value: "leger",     emoji: "🪶", label: "Me sentir plus léger",      adjustment: -400, type: "perte"    as const },
-  { value: "volume",    emoji: "📐", label: "Prendre du volume",         adjustment:  350, type: "prise"    as const },
-  { value: "maintien",  emoji: "⚖️", label: "Maintenir ma forme",        adjustment:    0, type: "maintien" as const },
-];
+// ─── Objectif poids (5 choix) ─────────────────────────────────────────────────
 
-const MACRO_RATIOS = {
-  prise:    { prot: 0.3,  carb: 0.45, fat: 0.25 },
-  maintien: { prot: 0.3,  carb: 0.4,  fat: 0.3  },
-  perte:    { prot: 0.35, carb: 0.35, fat: 0.3  },
-};
+export const WEIGHT_GOALS = [
+  { value: "perte_forte", label: "Perdre du poids",      emoji: "📉", adjustment: -550, type: "perte"    as const },
+  { value: "perte_douce", label: "Perdre légèrement",    emoji: "🪶", adjustment: -350, type: "perte"    as const },
+  { value: "maintien",    label: "Maintenir mon poids",  emoji: "⚖️", adjustment:    0, type: "maintien" as const },
+  { value: "prise_douce", label: "Prendre de la masse",  emoji: "💪", adjustment:  250, type: "prise"    as const },
+  { value: "prise_forte", label: "Prise de masse",       emoji: "🏋️", adjustment:  450, type: "prise"    as const },
+] as const;
+
+// ─── Motivations (6 choix, multi-select) ──────────────────────────────────────
+
+export const MOTIVATIONS = [
+  { value: "tonifier",  emoji: "💪", label: "Me tonifier"           },
+  { value: "force",     emoji: "🏋️", label: "Gagner en force"       },
+  { value: "explosif",  emoji: "⚡",  label: "Être plus explosif"    },
+  { value: "endurance", emoji: "🏃", label: "Courir plus loin"      },
+  { value: "leger",     emoji: "🪶", label: "Me sentir plus léger"  },
+  { value: "volume",    emoji: "📐", label: "Prendre du volume"     },
+] as const;
 
 export function calcTDEE(
   sexe: string,
@@ -61,41 +66,73 @@ export function calcTDEE(
   return Math.round(bmr * factor);
 }
 
-export function calcAdjustment(objectifValue: string, bmi: number): number {
-  const obj = OBJECTIVES.find((o) => o.value === objectifValue);
-  if (!obj) return 0;
-  let adj = obj.adjustment;
+export function calcAdjustment(weightGoalValue: string, bmi: number): number {
+  const goal = WEIGHT_GOALS.find((g) => g.value === weightGoalValue);
+  if (!goal) return 0;
+  let adj: number = goal.adjustment;
   if (bmi < 18.5) {
     adj = Math.max(adj, -150);
-  } else if (bmi >= 30) {
-    if (adj < 0) adj = Math.min(adj - 100, -300);
+  } else if (bmi >= 30 && adj < 0) {
+    adj = Math.min(adj - 100, -300);
   }
   return adj;
 }
+
+// ─── Calcul des macros (méthode g/kg) ────────────────────────────────────────
+// Protéines : 2.0g/kg si perte, 1.8g/kg sinon (plancher 1.6, plafond 2.2)
+// Lipides   : 1.0g/kg (plancher 0.8, plafond 1.3)
+// Glucides  : calories restantes / 4 (plancher 2.0g/kg)
 
 export function calcMacros(
   caloriesCible: number,
   poids: number,
   objectifType: "perte" | "maintien" | "prise"
 ) {
-  const ratios = MACRO_RATIOS[objectifType];
-  let prot = Math.round((caloriesCible * ratios.prot) / 4);
-  let carb = Math.round((caloriesCible * ratios.carb) / 4);
-  let fat  = Math.round((caloriesCible * ratios.fat)  / 9);
+  const isPerte = objectifType === "perte";
 
-  const minProt = Math.ceil(1.6 * poids);
-  const minFat  = Math.ceil(0.8 * poids);
+  // Protéines
+  const protTarget = isPerte ? 2.0 : 1.8;
+  const prot = Math.min(
+    Math.max(Math.round(protTarget * poids), Math.ceil(1.6 * poids)),
+    Math.floor(2.2 * poids)
+  );
 
-  if (prot < minProt) {
-    const extra = (minProt - prot) * 4;
-    prot = minProt;
-    carb = Math.max(0, carb - Math.round(extra / 4));
-  }
-  if (fat < minFat) {
-    const extra = (minFat - fat) * 9;
-    fat = minFat;
-    carb = Math.max(0, carb - Math.round(extra / 4));
-  }
+  // Lipides
+  const fat = Math.min(
+    Math.max(Math.round(1.0 * poids), Math.ceil(0.8 * poids)),
+    Math.floor(1.3 * poids)
+  );
+
+  // Glucides (calories restantes)
+  const remainingKcal = caloriesCible - prot * 4 - fat * 9;
+  const minCarb = Math.ceil(2.0 * poids);
+  const carb = Math.max(Math.round(remainingKcal / 4), minCarb);
 
   return { prot, carb, fat };
+}
+
+// ─── Smart BMI advice ─────────────────────────────────────────────────────────
+
+export function getWeightGoalAdvice(
+  objectifPoids: string,
+  motivations: string[],
+  bmi: number
+): string | null {
+  if (
+    objectifPoids === "maintien" &&
+    (motivations.includes("tonifier") || motivations.includes("leger")) &&
+    bmi > 25
+  ) {
+    return "Basé sur ton IMC, une légère perte de poids pourrait amplifier tes résultats plus vite.";
+  }
+  if (
+    (objectifPoids === "perte_forte" || objectifPoids === "perte_douce") &&
+    bmi < 20
+  ) {
+    return "Ton IMC est bas. On adapte ton plan pour préserver ta santé et ta masse musculaire.";
+  }
+  if (objectifPoids === "prise_forte" && bmi > 28) {
+    return "Une prise de masse sèche est recommandée pour ton profil. Tes protéines seront ajustées en conséquence.";
+  }
+  return null;
 }

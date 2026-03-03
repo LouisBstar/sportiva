@@ -23,7 +23,7 @@ export default async function ProfilPage() {
       supabase
         .from("profiles")
         .select(
-          "sexe, age, poids, taille, niveau_activite, tdee, objectif_identitaire, objectif_calorique, calories_cible, proteines_cible_g, glucides_cible_g, lipides_cible_g"
+          "sexe, age, poids, taille, niveau_activite, tdee, objectif_poids, motivations, objectif_calorique, calories_cible, proteines_cible_g, glucides_cible_g, lipides_cible_g"
         )
         .eq("user_id", user.id)
         .single(),
@@ -42,7 +42,7 @@ export default async function ProfilPage() {
         )
         .eq("user_id", user.id)
         .order("date", { ascending: false })
-        .limit(4),
+        .limit(12),
 
       supabase
         .from("sport_events")
@@ -94,14 +94,14 @@ export default async function ProfilPage() {
         <PersonalInfoSection profile={profile ?? {
           sexe: null, age: null, poids: null, taille: null,
           niveau_activite: null, tdee: null, calories_cible: null,
-          objectif_calorique: null, objectif_identitaire: null,
+          objectif_calorique: null,
           proteines_cible_g: null, glucides_cible_g: null, lipides_cible_g: null,
         }} />
 
         {/* 2. Objectif */}
         <ObjectifSection profile={profile ?? {
           sexe: null, poids: null, taille: null, tdee: null,
-          objectif_identitaire: null, objectif_calorique: null,
+          objectif_poids: null, motivations: null, objectif_calorique: null,
           calories_cible: null, proteines_cible_g: null,
           glucides_cible_g: null, lipides_cible_g: null,
         }} />

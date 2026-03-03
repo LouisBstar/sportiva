@@ -3,6 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addBodyComposition } from "@/app/actions/profil";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 type BodyEntry = {
   id: string;
@@ -17,76 +25,10 @@ type BodyEntry = {
 
 type Props = {
   lastMeasure: BodyEntry | null;
-  history: BodyEntry[]; // last 4 entries, ordered asc for sparkline
+  history: BodyEntry[]; // asc order
 };
 
-// ─── Weight sparkline ─────────────────────────────────────────────────────────
-
-function WeightSparkline({ history }: { history: BodyEntry[] }) {
-  const dataPoints = history.filter((e) => e.poids != null);
-  if (dataPoints.length < 2) return null;
-
-  const poids = dataPoints.map((e) => Number(e.poids));
-  const minP = Math.min(...poids);
-  const maxP = Math.max(...poids);
-  const range = maxP - minP || 1;
-
-  const W = 100;
-  const H = 40;
-  const pad = 5;
-  const step = (W - pad * 2) / (dataPoints.length - 1);
-
-  const points = dataPoints.map((e, i) => {
-    const x = pad + i * step;
-    const y = H - pad - ((Number(e.poids) - minP) / range) * (H - pad * 2);
-    return `${x},${y}`;
-  });
-
-  function formatShort(dateStr: string) {
-    const d = new Date(dateStr + "T00:00:00Z");
-    return d.toLocaleDateString("fr-FR", {
-      day: "numeric",
-      month: "short",
-      timeZone: "UTC",
-    });
-  }
-
-  return (
-    <div className="mt-3">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        width="100%"
-        height={40}
-        preserveAspectRatio="none"
-      >
-        <polyline
-          points={points.join(" ")}
-          fill="none"
-          stroke="#1A73E8"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {dataPoints.map((e, i) => {
-          const x = pad + i * step;
-          const y = H - pad - ((Number(e.poids) - minP) / range) * (H - pad * 2);
-          return (
-            <circle key={e.id} cx={x} cy={y} r="2.5" fill="#1A73E8" />
-          );
-        })}
-      </svg>
-      <div className="flex justify-between mt-1">
-        {dataPoints.map((e) => (
-          <span key={e.id} className="text-[9px] text-gray-300">
-            {formatShort(e.date)}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const FIELDS = [
   { key: "poids" as const,            label: "Poids",          unit: "kg",  step: "0.1" },
@@ -96,6 +38,152 @@ const FIELDS = [
   { key: "taux_hydrique" as const,     label: "Taux hydrique",  unit: "%",   step: "0.1" },
   { key: "masse_osseuse" as const,     label: "Masse osseuse",  unit: "kg",  step: "0.01"},
 ];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatShort(dateStr: string) {
+  const d = new Date(dateStr + "T00:00:00Z");
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+function getDelta(
+  history: BodyEntry[],
+  key: keyof BodyEntry,
+  daysBack: number
+): { delta: number | null; isGood: boolean | null } {
+  const now = Date.now();
+  const cutoff = now - daysBack * 24 * 60 * 60 * 1000;
+  const recent = history[history.length - 1];
+  if (!recent) return { delta: null, isGood: null };
+  const older = [...history]
+    .reverse()
+    .find((e) => new Date(e.date + "T00:00:00Z").getTime() <= cutoff);
+  if (!older || older.date === recent.date) return { delta: null, isGood: null };
+
+  const v1 = older[key];
+  const v2 = recent[key];
+  if (v1 == null || v2 == null) return { delta: null, isGood: null };
+  const delta = Number(v2) - Number(v1);
+  // For graisse: down = good. For muscle: up = good. For weight: neutral here.
+  const isGood =
+    key === "masse_musculaire"
+      ? delta > 0
+      : key === "masse_grasse_pct"
+      ? delta < 0
+      : null;
+  return { delta, isGood };
+}
+
+// ─── Stats row ────────────────────────────────────────────────────────────────
+
+function StatDelta({
+  label,
+  delta,
+  unit,
+  isGood,
+}: {
+  label: string;
+  delta: number | null;
+  unit: string;
+  isGood: boolean | null;
+}) {
+  if (delta === null) return null;
+  const color =
+    isGood === null
+      ? "text-gray-500"
+      : isGood
+      ? "text-accent"
+      : "text-warning";
+  const sign = delta > 0 ? "+" : "";
+  return (
+    <div className="flex items-center justify-between py-1.5">
+      <span className="text-xs text-gray-400">{label}</span>
+      <span className={`text-xs font-semibold ${color}`}>
+        {sign}{delta.toFixed(1)} {unit}
+      </span>
+    </div>
+  );
+}
+
+// ─── Chart tabs ───────────────────────────────────────────────────────────────
+
+type ChartKey = "poids" | "masse_grasse_pct" | "masse_musculaire";
+
+const CHART_OPTIONS: { key: ChartKey; label: string; unit: string; color: string }[] = [
+  { key: "poids",            label: "Poids",   unit: "kg", color: "#1A73E8" },
+  { key: "masse_grasse_pct", label: "Graisse", unit: "%",  color: "#F97316" },
+  { key: "masse_musculaire", label: "Muscle",  unit: "kg", color: "#34A853" },
+];
+
+function EvolutionChart({ history }: { history: BodyEntry[] }) {
+  const [activeKey, setActiveKey] = useState<ChartKey>("poids");
+  const opt = CHART_OPTIONS.find((o) => o.key === activeKey)!;
+
+  const data = history
+    .filter((e) => e[activeKey] != null)
+    .map((e) => ({
+      date: formatShort(e.date),
+      value: Number(e[activeKey]),
+    }));
+
+  if (data.length < 2) return null;
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-100">
+      {/* Tab selector */}
+      <div className="flex gap-1.5 mb-3">
+        {CHART_OPTIONS.map((o) => (
+          <button
+            key={o.key}
+            onClick={() => setActiveKey(o.key)}
+            className={`flex-1 text-[11px] font-semibold py-1.5 rounded-lg transition-colors ${
+              activeKey === o.key
+                ? "bg-primary/10 text-primary"
+                : "bg-gray-50 text-gray-400"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      <ResponsiveContainer width="100%" height={120}>
+        <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 9, fill: "#9CA3AF" }}
+            tickLine={false}
+            axisLine={false}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            tick={{ fontSize: 9, fill: "#9CA3AF" }}
+            tickLine={false}
+            axisLine={false}
+            width={38}
+            tickFormatter={(v) => `${v}${opt.unit}`}
+            domain={["auto", "auto"]}
+          />
+          <Tooltip
+            contentStyle={{ fontSize: 11, borderRadius: 8, border: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}
+            formatter={(v: number) => [`${v.toFixed(1)} ${opt.unit}`, opt.label]}
+            labelStyle={{ color: "#6B7280" }}
+          />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={opt.color}
+            strokeWidth={2}
+            dot={{ r: 3, fill: opt.color, strokeWidth: 0 }}
+            activeDot={{ r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function BodyCompositionSection({ lastMeasure, history }: Props) {
   const router = useRouter();
@@ -131,6 +219,19 @@ export default function BodyCompositionSection({ lastMeasure, history }: Props) 
       }
     });
   }
+
+  // Deltas
+  const delta1mPoids   = getDelta(history, "poids",           30);
+  const delta3mPoids   = getDelta(history, "poids",           90);
+  const delta1mFat     = getDelta(history, "masse_grasse_pct", 30);
+  const delta3mFat     = getDelta(history, "masse_grasse_pct", 90);
+  const delta1mMuscle  = getDelta(history, "masse_musculaire", 30);
+  const delta3mMuscle  = getDelta(history, "masse_musculaire", 90);
+
+  const hasStats =
+    delta1mPoids.delta !== null ||
+    delta1mFat.delta !== null ||
+    delta1mMuscle.delta !== null;
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-4">
@@ -175,8 +276,32 @@ export default function BodyCompositionSection({ lastMeasure, history }: Props) 
         )
       )}
 
-      {/* Sparkline */}
-      <WeightSparkline history={history} />
+      {/* Evolution chart */}
+      <EvolutionChart history={history} />
+
+      {/* Stats 1 mois / 3 mois */}
+      {hasStats && (
+        <div className="mt-4 pt-3 border-t border-gray-100">
+          <div className="grid grid-cols-2 gap-x-4">
+            <div>
+              <p className="text-[10px] text-gray-300 font-semibold uppercase tracking-wide mb-1">
+                1 mois
+              </p>
+              <StatDelta label="Poids"   delta={delta1mPoids.delta}  unit="kg" isGood={delta1mPoids.isGood} />
+              <StatDelta label="Graisse" delta={delta1mFat.delta}    unit="%"  isGood={delta1mFat.isGood} />
+              <StatDelta label="Muscle"  delta={delta1mMuscle.delta} unit="kg" isGood={delta1mMuscle.isGood} />
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-300 font-semibold uppercase tracking-wide mb-1">
+                3 mois
+              </p>
+              <StatDelta label="Poids"   delta={delta3mPoids.delta}  unit="kg" isGood={delta3mPoids.isGood} />
+              <StatDelta label="Graisse" delta={delta3mFat.delta}    unit="%"  isGood={delta3mFat.isGood} />
+              <StatDelta label="Muscle"  delta={delta3mMuscle.delta} unit="kg" isGood={delta3mMuscle.isGood} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Form */}
       {showForm && (
@@ -205,9 +330,7 @@ export default function BodyCompositionSection({ lastMeasure, history }: Props) 
                   type="number"
                   step={f.step}
                   value={form[f.key]}
-                  onChange={(e) =>
-                    setForm({ ...form, [f.key]: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
                   placeholder="—"
                   className="w-full bg-gray-50 border border-gray-100 rounded-xl px-3 py-2 text-sm font-semibold text-[#1A1A2E] focus:outline-none focus:border-primary"
                 />

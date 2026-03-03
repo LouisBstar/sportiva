@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { updateProfile } from "@/app/actions/profil";
 import {
   ACTIVITY_OPTIONS,
-  OBJECTIVES,
   calcTDEE,
   calcMacros,
 } from "@/lib/calc";
@@ -19,7 +18,6 @@ type Profile = {
   tdee: number | null;
   calories_cible: number | null;
   objectif_calorique: "perte" | "maintien" | "prise" | null;
-  objectif_identitaire: string | null;
   proteines_cible_g: number | null;
   glucides_cible_g: number | null;
   lipides_cible_g: number | null;
@@ -79,9 +77,7 @@ export default function PersonalInfoSection({ profile }: Props) {
 
     // Resolve the objectif type for macro recalc
     const objType: "perte" | "maintien" | "prise" =
-      profile.objectif_calorique ??
-      (OBJECTIVES.find((o) => o.label === profile.objectif_identitaire)?.type ??
-        "maintien");
+      profile.objectif_calorique ?? "maintien";
 
     const { prot, carb, fat } = calcMacros(newCal, p, objType);
 

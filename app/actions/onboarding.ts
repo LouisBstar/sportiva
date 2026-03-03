@@ -17,7 +17,8 @@ type OnboardingInput = {
   poids: number;
   taille: number;
   niveauActivite: string;
-  objectifIdentitaire: string;
+  objectifPoids: string;
+  motivations: string[];
   objectifCalorique: "perte" | "maintien" | "prise";
   tdee: number;
   caloriesCible: number;
@@ -45,7 +46,8 @@ export async function saveOnboarding(
       poids: data.poids,
       taille: data.taille,
       niveau_activite: data.niveauActivite,
-      objectif_identitaire: data.objectifIdentitaire,
+      objectif_poids: data.objectifPoids,
+      motivations: data.motivations,
       objectif_calorique: data.objectifCalorique,
       tdee: data.tdee,
       calories_cible: data.caloriesCible,

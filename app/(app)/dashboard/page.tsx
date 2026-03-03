@@ -5,6 +5,7 @@ import MacroChart from "./_components/MacroChart";
 import EdPlate from "./_components/EdPlate";
 import WeeklyScoreSection from "./_components/WeeklyScoreSection";
 import ScoreGauge from "@/components/ScoreGauge";
+import BodyCompoWidget from "./_components/BodyCompoWidget";
 import {
   computeWeekScore,
   getWeekMonday,
@@ -99,7 +100,7 @@ export default async function DashboardPage() {
   const pastMondays = getPastMondays(weekMonday, 4);
 
   // ── Parallel fetches ────────────────────────────────────────────────────────
-  const [profileRes, nutritionRes, mealsRes, activitiesRes, pastScoresRes] =
+  const [profileRes, nutritionRes, mealsRes, activitiesRes, pastScoresRes, bodyRes] =
     await Promise.all([
       supabase
         .from("profiles")
@@ -134,6 +135,13 @@ export default async function DashboardPage() {
         .eq("user_id", user.id)
         .in("semaine_debut", pastMondays)
         .order("semaine_debut", { ascending: false }),
+
+      supabase
+        .from("body_composition")
+        .select("date, poids, masse_grasse_pct, masse_musculaire")
+        .eq("user_id", user.id)
+        .order("date", { ascending: false })
+        .limit(2),
     ]);
 
   // ── Live score (semaine en cours) ────────────────────────────────────────────
@@ -174,6 +182,18 @@ export default async function DashboardPage() {
     semaine_debut: string;
     score_pct: number | null;
   }>;
+
+  const bodyEntries = (bodyRes.data ?? []) as Array<{
+    date: string;
+    poids: number | null;
+    masse_grasse_pct: number | null;
+    masse_musculaire: number | null;
+  }>;
+  const bodyLast = bodyEntries[0] ?? null;
+  const bodyPrev = bodyEntries[1] ?? null;
+  const daysSinceLast = bodyLast
+    ? Math.floor((Date.now() - new Date(bodyLast.date + "T00:00:00Z").getTime()) / (1000 * 60 * 60 * 24))
+    : null;
 
   const protTarget = profile?.proteines_cible_g ?? 0;
   const carbTarget = profile?.glucides_cible_g ?? 0;
@@ -424,10 +444,23 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        {/* ── Section 6 : Score antifragile ── */}
+        {/* ── Section 6 : Composition corporelle ── */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <SectionHeader
+            title="Composition corporelle"
+            action={{ label: "+", href: "/profil" }}
+          />
+          <BodyCompoWidget
+            last={bodyLast}
+            prev={bodyPrev}
+            daysSinceLast={daysSinceLast}
+          />
+        </div>
+
+        {/* ── Section 7 : Score antifragile ── */}
         <WeeklyScoreSection current={liveScore} pastWeeks={pastWeeks} />
 
-        {/* ── Section 7 : Tip du jour ── */}
+        {/* ── Section 8 : Tip du jour ── */}
         <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 flex gap-3">
           <span className="text-xl flex-shrink-0">💡</span>
           <div>

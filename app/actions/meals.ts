@@ -9,21 +9,16 @@ export type MealType =
   | "collation"
   | "diner";
 
-/**
- * Get or create a meal for today with the given type.
- * Returns the meal id.
- */
+// ─── Get or create meal ───────────────────────────────────────────────────────
+
 export async function getOrCreateMeal(
   date: string,
   typeRepas: MealType
 ): Promise<{ id: string } | { error: string }> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Non authentifié" };
 
-  // Look for existing meal today
   const { data: existing } = await supabase
     .from("meals")
     .select("id")
@@ -44,42 +39,44 @@ export async function getOrCreateMeal(
   return { id: created.id };
 }
 
-export type AddItemInput = {
-  mealId: string;
-  productId: string;
-  quantiteG: number;
-  // denormalized macros (per 100g, we calc here)
-  calories100g: number | null;
-  proteines100g: number | null;
-  glucides100g: number | null;
-  lipides100g: number | null;
+// ─── Ajout groupé d'aliments (nouveau — gère produits perso ET génériques) ───
+
+export type NewMealItem = {
+  nom: string;               // nom d'affichage
+  quantite_g: number;
+  calories: number | null;   // déjà calculés pour quantite_g
+  proteines: number | null;
+  glucides: number | null;
+  lipides: number | null;
+  productId?: string;        // si produit perso (sinon null → générique)
 };
 
-export async function addMealItem(
-  input: AddItemInput
+export async function addMealItems(
+  date: string,
+  typeRepas: MealType,
+  items: NewMealItem[]
 ): Promise<{ error?: string }> {
+  if (!items.length) return {};
+
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Non authentifié" };
 
-  const ratio = input.quantiteG / 100;
-  const calories = input.calories100g != null ? input.calories100g * ratio : null;
-  const proteines = input.proteines100g != null ? input.proteines100g * ratio : null;
-  const glucides = input.glucides100g != null ? input.glucides100g * ratio : null;
-  const lipides = input.lipides100g != null ? input.lipides100g * ratio : null;
+  const mealResult = await getOrCreateMeal(date, typeRepas);
+  if ("error" in mealResult) return { error: mealResult.error };
 
-  const { error } = await supabase.from("meal_items").insert({
-    meal_id: input.mealId,
-    product_id: input.productId,
-    quantite_g: input.quantiteG,
-    calories,
-    proteines,
-    glucides,
-    lipides,
-  });
+  const rows = items.map((item) => ({
+    meal_id: mealResult.id,
+    product_id: item.productId ?? null,
+    nom_aliment: item.productId ? null : item.nom,
+    quantite_g: item.quantite_g,
+    calories: item.calories,
+    proteines: item.proteines,
+    glucides: item.glucides,
+    lipides: item.lipides,
+  }));
 
+  const { error } = await supabase.from("meal_items").insert(rows);
   if (error) return { error: error.message };
 
   revalidatePath("/repas");
@@ -87,18 +84,14 @@ export async function addMealItem(
   return {};
 }
 
+// ─── Suppression d'un aliment ─────────────────────────────────────────────────
+
 export async function removeMealItem(id: string): Promise<{ error?: string }> {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Non authentifié" };
 
-  const { error } = await supabase
-    .from("meal_items")
-    .delete()
-    .eq("id", id);
-
+  const { error } = await supabase.from("meal_items").delete().eq("id", id);
   if (error) return { error: error.message };
 
   revalidatePath("/repas");
