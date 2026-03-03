@@ -22,6 +22,14 @@ const config: Config = {
           800: "#0A2E5D",
           900: "#05172E",
         },
+        accent: {
+          DEFAULT: "#34A853",
+          light: "#E8F5ED",
+        },
+        warning: {
+          DEFAULT: "#E65100",
+          light: "#FFF3EC",
+        },
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],

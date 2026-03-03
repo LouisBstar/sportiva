@@ -14,7 +14,7 @@ const navItems = [
         fill={active ? "currentColor" : "none"}
         stroke="currentColor"
         strokeWidth={active ? 0 : 1.5}
-        className="w-6 h-6"
+        className="w-5 h-5"
       >
         <path
           strokeLinecap="round"
@@ -34,7 +34,7 @@ const navItems = [
         fill={active ? "currentColor" : "none"}
         stroke="currentColor"
         strokeWidth={active ? 0 : 1.5}
-        className="w-6 h-6"
+        className="w-5 h-5"
       >
         <path
           strokeLinecap="round"
@@ -54,7 +54,7 @@ const navItems = [
         fill={active ? "currentColor" : "none"}
         stroke="currentColor"
         strokeWidth={active ? 0 : 1.5}
-        className="w-6 h-6"
+        className="w-5 h-5"
       >
         <path
           strokeLinecap="round"
@@ -79,7 +79,7 @@ const navItems = [
         fill={active ? "currentColor" : "none"}
         stroke="currentColor"
         strokeWidth={active ? 0 : 1.5}
-        className="w-6 h-6"
+        className="w-5 h-5"
       >
         <path
           strokeLinecap="round"
@@ -104,7 +104,7 @@ const navItems = [
         fill={active ? "currentColor" : "none"}
         stroke="currentColor"
         strokeWidth={active ? 0 : 1.5}
-        className="w-6 h-6"
+        className="w-5 h-5"
       >
         <path
           strokeLinecap="round"
@@ -116,16 +116,27 @@ const navItems = [
   },
 ];
 
-export default function BottomNav() {
+export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <nav
-      className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    <aside
+      className="hidden lg:flex flex-col fixed left-0 top-0 h-screen w-64 bg-white border-r border-gray-100 z-40"
+      role="navigation"
       aria-label="Navigation principale"
     >
-      <div className="flex items-center justify-around h-16">
+      {/* Logo */}
+      <div className="px-6 py-6 border-b border-gray-100">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-sm font-bold">S</span>
+          </div>
+          <span className="text-lg font-bold text-[#1A1A2E]">Sportiva</span>
+        </div>
+      </div>
+
+      {/* Nav items */}
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {navItems.map(({ href, label, icon }) => {
           const active =
             pathname === href || pathname.startsWith(href + "/");
@@ -134,8 +145,10 @@ export default function BottomNav() {
               key={href}
               href={href}
               aria-current={active ? "page" : undefined}
-              className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-xs font-medium transition-colors ${
-                active ? "text-primary" : "text-gray-400 hover:text-gray-600"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                active
+                  ? "bg-primary/10 text-primary"
+                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
               }`}
             >
               {icon(active)}
@@ -143,7 +156,14 @@ export default function BottomNav() {
             </Link>
           );
         })}
+      </nav>
+
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-gray-100">
+        <p className="text-[10px] text-gray-300 uppercase tracking-wide font-medium">
+          Sportiva v1.0
+        </p>
       </div>
-    </nav>
+    </aside>
   );
 }
