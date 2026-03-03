@@ -8,6 +8,10 @@ node_modules/
 /.next/
 /out/
 
+# Serwist — service worker généré au build (Vercel le crée lui-même)
+/public/sw.js
+/public/sw.js.map
+
 # Production
 /build
 
